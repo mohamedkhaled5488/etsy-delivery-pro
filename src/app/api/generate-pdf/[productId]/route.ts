@@ -55,9 +55,9 @@ export async function POST(
       const product = {
         ...rawProduct,
         zip_url: rewriteLocalUrl(rawProduct.zip_url, origin),
-        download_url: rewriteLocalUrl(rawProduct.download_url, origin),
+        download_url: rewriteLocalUrl(rawProduct.download_url, origin) ?? rawProduct.download_url,
         preview_image_url: rewriteLocalUrl(rawProduct.preview_image_url, origin),
-        files: rawProduct.files.map((f) => ({ ...f, url: rewriteLocalUrl(f.url, origin)! })),
+        files: rawProduct.files.map((f) => ({ ...f, url: rewriteLocalUrl(f.url, origin) ?? f.url })),
       }
 
       const shop = await getLocalShop()
