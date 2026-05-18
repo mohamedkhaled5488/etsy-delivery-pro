@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Start-Sleep -Seconds 5; try { $r = Invoke-RestMethod -Uri \"http://localhost:8000/health\"; Write-Output \"Backend OK: $\\($r.status\\)\" } catch { Write-Output \"Backend not yet ready: $_\" }; try { $r2 = Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -TimeoutSec 5; Write-Output \"Frontend OK: $\\($r2.StatusCode\\)\" } catch { Write-Output \"Frontend not yet ready\" })"
+    ]
+  }
+}
