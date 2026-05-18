@@ -80,8 +80,10 @@ export default function UploadPage() {
       }),
     })
     if (!initRes.ok) {
-      const err = await initRes.json()
-      throw new Error(err.error || 'Failed to initialise upload')
+      const text = await initRes.text()
+      let msg = 'Failed to initialise upload'
+      try { msg = JSON.parse(text).error || msg } catch { msg = text || msg }
+      throw new Error(msg)
     }
     const { productId, signedUrls, zipSignedUrl } = await initRes.json()
 
@@ -138,8 +140,10 @@ export default function UploadPage() {
       body: JSON.stringify({ productId, files: uploaded, zipPath: finalZipPath, previewImagePath }),
     })
     if (!completeRes.ok) {
-      const err = await completeRes.json()
-      throw new Error(err.error || 'Finalise failed')
+      const text = await completeRes.text()
+      let msg = 'Finalise failed'
+      try { msg = JSON.parse(text).error || msg } catch { msg = text || msg }
+      throw new Error(msg)
     }
 
     setProgress({ stage: 'done', message: 'Upload complete!', percent: 100 })
