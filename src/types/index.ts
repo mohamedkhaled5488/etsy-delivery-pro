@@ -102,7 +102,7 @@ export interface UploadInitPayload {
 export interface UploadCompletePayload {
   productId: string
   files: FileMetadata[]
-  zipPath: string
+  zipPath: string | null
   previewImagePath: string | null
 }
 

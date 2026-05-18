@@ -17,6 +17,13 @@ interface Progress { stage: Stage; message: string; percent: number }
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const USE_LOCAL = !SUPABASE_URL || !SUPABASE_URL.startsWith('https://')
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Upload timed out after ${Math.round(ms / 60000)} min`)), ms)
+    promise.then((v) => { clearTimeout(timer); resolve(v) }, (e) => { clearTimeout(timer); reject(e) })
+  })
+}
+
 export default function UploadPage() {
   const router = useRouter()
   const [files, setFiles] = useState<File[]>([])
@@ -96,28 +103,39 @@ export default function UploadPage() {
       const file = files[i]
       const sd = signedUrls[file.name]
       if (!sd) continue
-      const { error } = await getSupabaseClient().storage
-        .from(STORAGE_BUCKET)
-        .uploadToSignedUrl(sd.path, sd.token, file, { contentType: file.type })
-      if (error) throw new Error(`Failed to upload ${file.name}: ${error.message}`)
+      const result = await withTimeout(
+        getSupabaseClient().storage.from(STORAGE_BUCKET).uploadToSignedUrl(sd.path, sd.token, file, { contentType: file.type }),
+        8 * 60 * 1000
+      )
+      if (result.error) throw new Error(`Failed to upload ${file.name}: ${result.error.message}`)
       uploaded.push({ name: file.name, path: sd.path, type: file.type, size: file.size, url: '' })
       if (!previewImagePath && isImageFile(file.name)) previewImagePath = sd.path
       setProgress({ stage: 'uploading', message: `Uploading ${i + 1}/${files.length}: ${file.name}`, percent: 35 + ((i + 1) / files.length) * 40 })
     }
 
-    // Upload ZIP
+    // Upload ZIP — optional, skip gracefully if too large for the plan
     setProgress({ stage: 'uploading', message: 'Uploading ZIP archive…', percent: 77 })
-    const { error: zipErr } = await getSupabaseClient().storage
-      .from(STORAGE_BUCKET)
-      .uploadToSignedUrl(zipSignedUrl.path, zipSignedUrl.token, zipBlob, { contentType: 'application/zip' })
-    if (zipErr) throw new Error(`ZIP upload failed: ${zipErr.message}`)
+    let finalZipPath: string | null = null
+    try {
+      const zipResult = await withTimeout(
+        getSupabaseClient().storage.from(STORAGE_BUCKET).uploadToSignedUrl(zipSignedUrl.path, zipSignedUrl.token, zipBlob, { contentType: 'application/zip' }),
+        10 * 60 * 1000
+      )
+      if (zipResult.error) {
+        console.warn('ZIP upload skipped:', zipResult.error.message)
+      } else {
+        finalZipPath = zipSignedUrl.path
+      }
+    } catch {
+      console.warn('ZIP upload skipped (timeout or error)')
+    }
 
     // Finalize
     setProgress({ stage: 'completing', message: 'Finalising…', percent: 90 })
     const completeRes = await fetch('/api/upload/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productId, files: uploaded, zipPath: zipSignedUrl.path, previewImagePath }),
+      body: JSON.stringify({ productId, files: uploaded, zipPath: finalZipPath, previewImagePath }),
     })
     if (!completeRes.ok) {
       const err = await completeRes.json()

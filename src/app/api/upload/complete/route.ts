@@ -43,17 +43,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ZIP public URL
-    const zipUrl = getPublicUrl(zipPath)
+    // ZIP public URL (null if ZIP upload was skipped due to size limits)
+    const zipUrl = zipPath ? getPublicUrl(zipPath) : null
 
     // Update product record
     const { data: product, error: dbError } = await supabase
       .from('products')
       .update({
         files: fileMetadata,
-        download_url: zipUrl,
+        download_url: zipUrl ?? fileMetadata[0]?.url ?? '',
         zip_url: zipUrl,
-        zip_storage_path: zipPath,
+        zip_storage_path: zipPath ?? null,
         preview_image_url: previewImageUrl,
         preview_image_storage_path: previewStoragePath,
         status: 'active',
