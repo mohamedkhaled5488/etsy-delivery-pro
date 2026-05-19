@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
-import { Download, Package, CheckCircle, ExternalLink } from 'lucide-react'
+import JSZip from 'jszip'
+import { Download, CheckCircle, ExternalLink, Loader2 } from 'lucide-react'
 import { formatBytes, getFileIcon } from '@/lib/utils'
 import type { Product, ShopSettings } from '@/types'
 
@@ -14,16 +15,15 @@ interface Props {
 
 export default function DownloadClient({ product, shop, productId }: Props) {
   const [downloaded, setDownloaded] = useState(false)
+  const [zipping, setZipping] = useState(false)
 
   async function trackAndDownload(url: string, type: 'zip' | 'file', fileName?: string) {
-    // Track download
     fetch(`/api/track/${productId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ download_type: type, file_name: fileName }),
     }).catch(() => {})
 
-    // Trigger download
     const a = document.createElement('a')
     a.href = url
     a.download = fileName ?? `${product.title}.zip`
@@ -33,6 +33,42 @@ export default function DownloadClient({ product, shop, productId }: Props) {
 
     if (type === 'zip') setDownloaded(true)
   }
+
+  async function downloadAllAsZip() {
+    setZipping(true)
+    try {
+      const zip = new JSZip()
+      await Promise.all(
+        product.files.map(async (file) => {
+          const url = file.url || file.path
+          const res = await fetch(url)
+          const blob = await res.blob()
+          zip.file(file.name, blob)
+        })
+      )
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 4 } })
+      const objectUrl = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = `${product.title}.zip`
+      a.click()
+      URL.revokeObjectURL(objectUrl)
+      setDownloaded(true)
+
+      fetch(`/api/track/${productId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ download_type: 'zip' }),
+      }).catch(() => {})
+    } catch (err) {
+      console.error('ZIP creation failed:', err)
+      alert('Could not create ZIP. Please download files individually below.')
+    } finally {
+      setZipping(false)
+    }
+  }
+
+  const hasStoredZip = !!(product.zip_url || product.zip_storage_path)
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -104,7 +140,7 @@ export default function DownloadClient({ product, shop, productId }: Props) {
             </div>
 
             {/* Primary download button */}
-            {(product.zip_url || product.zip_storage_path) && (
+            {hasStoredZip ? (
               <button
                 onClick={() => trackAndDownload(product.zip_url || product.zip_storage_path!, 'zip')}
                 className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl
@@ -114,9 +150,30 @@ export default function DownloadClient({ product, shop, productId }: Props) {
                 <Download className="w-5 h-5" />
                 {downloaded ? 'Download Again' : 'Download All Files'}
               </button>
+            ) : (
+              <button
+                onClick={downloadAllAsZip}
+                disabled={zipping}
+                className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl
+                           bg-stone-800 text-white font-semibold text-base hover:bg-stone-700
+                           active:scale-[0.99] transition-all shadow-lg shadow-stone-200 mb-3
+                           disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {zipping ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Creating ZIP…
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-5 h-5" />
+                    {downloaded ? 'Download Again' : 'Download All Files'}
+                  </>
+                )}
+              </button>
             )}
 
-            {downloaded && (
+            {downloaded && !zipping && (
               <div className="flex items-center gap-2 justify-center text-emerald-600 text-sm py-2">
                 <CheckCircle className="w-4 h-4" />
                 Download started — check your Downloads folder!
