@@ -104,9 +104,9 @@ export default function DownloadClient({ product, shop, productId }: Props) {
             </div>
 
             {/* Primary download button */}
-            {(product.zip_storage_path || product.zip_url) && (
+            {(product.zip_url || product.zip_storage_path) && (
               <button
-                onClick={() => trackAndDownload(product.zip_storage_path || product.zip_url!, 'zip')}
+                onClick={() => trackAndDownload(product.zip_url || product.zip_storage_path!, 'zip')}
                 className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl
                            bg-stone-800 text-white font-semibold text-base hover:bg-stone-700
                            active:scale-[0.99] transition-all shadow-lg shadow-stone-200 mb-3"
@@ -135,7 +135,7 @@ export default function DownloadClient({ product, shop, productId }: Props) {
             {product.files.map((file, i) => (
               <button
                 key={i}
-                onClick={() => trackAndDownload(file.path || file.url, 'file', file.name)}
+                onClick={() => trackAndDownload(file.url || file.path, 'file', file.name)}
                 className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-stone-50 transition-colors text-left group"
               >
                 <span className="text-xl">{getFileIcon(file.name)}</span>
