@@ -86,13 +86,16 @@ export default function UploadPage() {
     }
     const { productId, signedUrls } = await initRes.json()
 
-    // Upload all files in parallel
+    // Upload files with limited concurrency (2 at a time = full bandwidth per file)
     setProgress({ stage: 'uploading', message: `Uploading ${files.length} files…`, percent: 10 })
     let done = 0
     let previewImagePath: string | null = null
+    const uploaded: { name: string; path: string; type: string; size: number; url: string }[] = []
+    const queue = [...files]
 
-    const uploaded = await Promise.all(
-      files.map(async (file) => {
+    async function worker() {
+      while (queue.length > 0) {
+        const file = queue.shift()!
         const sd = signedUrls[file.name]
         if (!sd) throw new Error(`No upload URL for ${file.name}`)
         const result = await withTimeout(
@@ -101,11 +104,12 @@ export default function UploadPage() {
         )
         if (result.error) throw new Error(`Failed to upload ${file.name}: ${result.error.message}`)
         done++
-        setProgress({ stage: 'uploading', message: `Uploaded ${done}/${files.length} files`, percent: 10 + (done / files.length) * 80 })
+        setProgress({ stage: 'uploading', message: `Uploading… ${done} of ${files.length} done`, percent: 10 + (done / files.length) * 80 })
         if (!previewImagePath && isImageFile(file.name)) previewImagePath = sd.path
-        return { name: file.name, path: sd.path, type: file.type, size: file.size, url: '' }
-      })
-    )
+        uploaded.push({ name: file.name, path: sd.path, type: file.type, size: file.size, url: '' })
+      }
+    }
+    await Promise.all([worker(), worker()]) // 2 concurrent streams
 
     // Finalize
     setProgress({ stage: 'completing', message: 'Finalising…', percent: 92 })
