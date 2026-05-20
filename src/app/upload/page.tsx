@@ -4,13 +4,12 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Loader2, CheckCircle2, Upload as UploadIcon, ChevronRight, Info } from 'lucide-react'
-import JSZip from 'jszip'
 import AppLayout from '@/components/layout/AppLayout'
 import DropZone from '@/components/upload/DropZone'
 import { getSupabaseClient, STORAGE_BUCKET } from '@/lib/supabase'
 import { isImageFile } from '@/lib/utils'
 
-type Stage = 'idle' | 'zipping' | 'uploading' | 'completing' | 'done'
+type Stage = 'idle' | 'uploading' | 'completing' | 'done'
 interface Progress { stage: Stage; message: string; percent: number }
 
 // Detected at build time — empty string when not configured
@@ -65,7 +64,7 @@ export default function UploadPage() {
 
   // ── SUPABASE upload ────────────────────────────────────────
   async function uploadSupabase() {
-    setProgress({ stage: 'zipping', message: 'Preparing files…', percent: 5 })
+    setProgress({ stage: 'uploading', message: 'Preparing upload…', percent: 5 })
 
     const folderName =
       (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath?.split('/')[0] || title
@@ -85,59 +84,35 @@ export default function UploadPage() {
       try { msg = JSON.parse(text).error || msg } catch { msg = text || msg }
       throw new Error(msg)
     }
-    const { productId, signedUrls, zipSignedUrl } = await initRes.json()
+    const { productId, signedUrls } = await initRes.json()
 
-    // ZIP in browser
-    setProgress({ stage: 'zipping', message: 'Creating ZIP archive…', percent: 15 })
-    const zip = new JSZip()
-    for (const file of files) zip.file(file.name, await file.arrayBuffer())
-    const zipBlob = await zip.generateAsync(
-      { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
-      (m) => setProgress({ stage: 'zipping', message: `Compressing: ${Math.round(m.percent)}%`, percent: 15 + m.percent * 0.2 })
-    )
-
-    // Upload files
-    setProgress({ stage: 'uploading', message: 'Uploading files to cloud…', percent: 35 })
-    const uploaded: { name: string; path: string; type: string; size: number; url: string }[] = []
+    // Upload all files in parallel
+    setProgress({ stage: 'uploading', message: `Uploading ${files.length} files…`, percent: 10 })
+    let done = 0
     let previewImagePath: string | null = null
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      const sd = signedUrls[file.name]
-      if (!sd) continue
-      const result = await withTimeout(
-        getSupabaseClient().storage.from(STORAGE_BUCKET).uploadToSignedUrl(sd.path, sd.token, file, { contentType: file.type }),
-        8 * 60 * 1000
-      )
-      if (result.error) throw new Error(`Failed to upload ${file.name}: ${result.error.message}`)
-      uploaded.push({ name: file.name, path: sd.path, type: file.type, size: file.size, url: '' })
-      if (!previewImagePath && isImageFile(file.name)) previewImagePath = sd.path
-      setProgress({ stage: 'uploading', message: `Uploading ${i + 1}/${files.length}: ${file.name}`, percent: 35 + ((i + 1) / files.length) * 40 })
-    }
-
-    // Upload ZIP — optional, skip gracefully if too large for the plan
-    setProgress({ stage: 'uploading', message: 'Uploading ZIP archive…', percent: 77 })
-    let finalZipPath: string | null = null
-    try {
-      const zipResult = await withTimeout(
-        getSupabaseClient().storage.from(STORAGE_BUCKET).uploadToSignedUrl(zipSignedUrl.path, zipSignedUrl.token, zipBlob, { contentType: 'application/zip' }),
-        10 * 60 * 1000
-      )
-      if (zipResult.error) {
-        console.warn('ZIP upload skipped:', zipResult.error.message)
-      } else {
-        finalZipPath = zipSignedUrl.path
-      }
-    } catch {
-      console.warn('ZIP upload skipped (timeout or error)')
-    }
+    const uploaded = await Promise.all(
+      files.map(async (file) => {
+        const sd = signedUrls[file.name]
+        if (!sd) throw new Error(`No upload URL for ${file.name}`)
+        const result = await withTimeout(
+          getSupabaseClient().storage.from(STORAGE_BUCKET).uploadToSignedUrl(sd.path, sd.token, file, { contentType: file.type }),
+          8 * 60 * 1000
+        )
+        if (result.error) throw new Error(`Failed to upload ${file.name}: ${result.error.message}`)
+        done++
+        setProgress({ stage: 'uploading', message: `Uploaded ${done}/${files.length} files`, percent: 10 + (done / files.length) * 80 })
+        if (!previewImagePath && isImageFile(file.name)) previewImagePath = sd.path
+        return { name: file.name, path: sd.path, type: file.type, size: file.size, url: '' }
+      })
+    )
 
     // Finalize
-    setProgress({ stage: 'completing', message: 'Finalising…', percent: 90 })
+    setProgress({ stage: 'completing', message: 'Finalising…', percent: 92 })
     const completeRes = await fetch('/api/upload/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productId, files: uploaded, zipPath: finalZipPath, previewImagePath }),
+      body: JSON.stringify({ productId, files: uploaded, zipPath: null, previewImagePath }),
     })
     if (!completeRes.ok) {
       const text = await completeRes.text()

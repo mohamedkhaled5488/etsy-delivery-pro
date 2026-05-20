@@ -43,19 +43,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Signed URL for ZIP
-    const zipPath = `products/${productId}/archive.zip`
-    const { data: zipSignedData, error: zipError } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .createSignedUploadUrl(zipPath)
-
-    if (zipError) {
-      return NextResponse.json(
-        { error: `Failed to create ZIP upload URL: ${zipError.message}` },
-        { status: 500 }
-      )
-    }
-
     // Create placeholder product record (status: uploading)
     const { error: dbError } = await supabase.from('products').insert({
       id: productId,
@@ -63,7 +50,7 @@ export async function POST(request: NextRequest) {
       folder_name: folderName || title,
       files: [],
       storage_path: `products/${productId}`,
-      download_url: zipSignedData.signedUrl, // Will be updated after upload
+      download_url: '',
       status: 'uploading',
       file_count: files.length,
       total_size: files.reduce((sum, f) => sum + f.size, 0),
@@ -74,15 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: dbError.message }, { status: 500 })
     }
 
-    return NextResponse.json({
-      productId,
-      signedUrls,
-      zipSignedUrl: {
-        signedUrl: zipSignedData.signedUrl,
-        token: zipSignedData.token,
-        path: zipPath,
-      },
-    })
+    return NextResponse.json({ productId, signedUrls })
   } catch (err) {
     console.error('Upload init error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
