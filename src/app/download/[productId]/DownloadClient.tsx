@@ -16,6 +16,18 @@ interface Props {
 export default function DownloadClient({ product, shop, productId }: Props) {
   const [downloaded, setDownloaded] = useState(false)
   const [zipping, setZipping] = useState(false)
+  const [downloading, setDownloading] = useState<string | null>(null)
+
+  async function blobDownload(url: string, fileName: string) {
+    const res = await fetch(url)
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = fileName
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  }
 
   async function trackAndDownload(url: string, type: 'zip' | 'file', fileName?: string) {
     fetch(`/api/track/${productId}`, {
@@ -24,14 +36,17 @@ export default function DownloadClient({ product, shop, productId }: Props) {
       body: JSON.stringify({ download_type: type, file_name: fileName }),
     }).catch(() => {})
 
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName ?? `${product.title}.zip`
-    a.target = '_blank'
-    a.rel = 'noopener noreferrer'
-    a.click()
-
-    if (type === 'zip') setDownloaded(true)
+    if (type === 'file' && fileName) {
+      setDownloading(fileName)
+      try {
+        await blobDownload(url, fileName)
+      } finally {
+        setDownloading(null)
+      }
+    } else {
+      await blobDownload(url, fileName ?? `${product.title}.zip`)
+      setDownloaded(true)
+    }
   }
 
   async function downloadAllAsZip() {
@@ -193,14 +208,18 @@ export default function DownloadClient({ product, shop, productId }: Props) {
               <button
                 key={i}
                 onClick={() => trackAndDownload(file.url || file.path, 'file', file.name)}
-                className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-stone-50 transition-colors text-left group"
+                disabled={downloading === file.name}
+                className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-stone-50 transition-colors text-left group disabled:opacity-60"
               >
                 <span className="text-xl">{getFileIcon(file.name)}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-stone-700 truncate">{file.name}</p>
                   <p className="text-xs text-stone-400">{formatBytes(file.size)}</p>
                 </div>
-                <Download className="w-4 h-4 text-stone-300 group-hover:text-brand-500 transition-colors flex-shrink-0" />
+                {downloading === file.name
+                  ? <Loader2 className="w-4 h-4 text-brand-500 animate-spin flex-shrink-0" />
+                  : <Download className="w-4 h-4 text-stone-300 group-hover:text-brand-500 transition-colors flex-shrink-0" />
+                }
               </button>
             ))}
           </div>
