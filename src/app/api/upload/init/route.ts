@@ -17,30 +17,20 @@ export async function POST(request: NextRequest) {
     const supabase = createAdminClient()
     const productId = uuidv4()
 
-    // Generate signed upload URLs for each file
+    // Generate signed upload URLs for all files in parallel + insert DB record simultaneously
+    const urlResults = await Promise.all(
+      files.map(async (file) => {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._\-]/g, '_')
+        const path = `products/${productId}/files/${safeName}`
+        const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUploadUrl(path)
+        if (error) throw new Error(`Failed to create upload URL for ${file.name}: ${error.message}`)
+        return { fileName: file.name, signedUrl: data.signedUrl, token: data.token, path }
+      })
+    )
+
     const signedUrls: Record<string, { signedUrl: string; token: string; path: string }> = {}
-
-    for (const file of files) {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._\-]/g, '_')
-      const path = `products/${productId}/files/${safeName}`
-
-      const { data, error } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .createSignedUploadUrl(path)
-
-      if (error) {
-        console.error('Failed to create signed URL for', file.name, error)
-        return NextResponse.json(
-          { error: `Failed to create upload URL for ${file.name}: ${error.message}` },
-          { status: 500 }
-        )
-      }
-
-      signedUrls[file.name] = {
-        signedUrl: data.signedUrl,
-        token: data.token,
-        path,
-      }
+    for (const r of urlResults) {
+      signedUrls[r.fileName] = { signedUrl: r.signedUrl, token: r.token, path: r.path }
     }
 
     // Create placeholder product record (status: uploading)
