@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Loader2, CheckCircle2, Upload as UploadIcon, ChevronRight, Info } from 'lucide-react'
 import AppLayout from '@/components/layout/AppLayout'
 import DropZone from '@/components/upload/DropZone'
-import { getSupabaseClient, STORAGE_BUCKET } from '@/lib/supabase'
+import { STORAGE_BUCKET } from '@/lib/supabase'
 import { isImageFile } from '@/lib/utils'
 
 type Stage = 'idle' | 'uploading' | 'completing' | 'done'
@@ -98,11 +98,11 @@ export default function UploadPage() {
         const file = queue.shift()!
         const sd = signedUrls[file.name]
         if (!sd) throw new Error(`No upload URL for ${file.name}`)
-        const result = await withTimeout(
-          getSupabaseClient().storage.from(STORAGE_BUCKET).uploadToSignedUrl(sd.path, sd.token, file, { contentType: file.type }),
+        const res = await withTimeout(
+          fetch(sd.signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } }),
           8 * 60 * 1000
         )
-        if (result.error) throw new Error(`Failed to upload ${file.name}: ${result.error.message}`)
+        if (!res.ok) throw new Error(`Failed to upload ${file.name}: ${res.statusText}`)
         done++
         setProgress({ stage: 'uploading', message: `Uploading… ${done} of ${files.length} done`, percent: 10 + (done / files.length) * 80 })
         if (!previewImagePath && isImageFile(file.name)) previewImagePath = sd.path
